@@ -1,0 +1,8 @@
+<resources>
+    <style name="Theme.SalaahAlarm" parent="android:Theme.Material.Light.NoActionBar" />
+
+    <style name="Theme.SalaahAlarm.Ringing" parent="Theme.SalaahAlarm">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:windowShowWallpaper">false</item>
+    </style>
+</resources>
