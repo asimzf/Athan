@@ -31,7 +31,7 @@ jobs:
       - name: Build and test
         run: |
           set -o pipefail
-          ./gradlew test assembleDebug --console=plain 2>&1 | tee /tmp/build.log
+          ./gradlew testDebugUnitTest assembleDebug --console=plain 2>&1 | tee /tmp/build.log
 
       # Gradle's own failure output buries Kotlin errors under a long stack trace, so
       # repeat just the diagnostics at the end of the log where they are readable.

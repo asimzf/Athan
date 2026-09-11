@@ -73,7 +73,7 @@ class AlarmScheduler(private val context: Context) {
     }
 
     private fun schedule(rule: AlarmRule, trigger: Instant) {
-        val operation = firePendingIntent(rule.id, trigger, PendingIntent.FLAG_UPDATE_CURRENT)
+        val operation = createFirePendingIntent(rule.id, trigger)
         val millis = trigger.toEpochMilli()
 
         if (canScheduleExact()) {
@@ -95,7 +95,7 @@ class AlarmScheduler(private val context: Context) {
     }
 
     fun cancel(ruleId: Int) {
-        firePendingIntent(ruleId, null, PendingIntent.FLAG_NO_CREATE)?.let {
+        existingFirePendingIntent(ruleId)?.let {
             alarmManager.cancel(it)
             it.cancel()
         }
@@ -120,8 +120,8 @@ class AlarmScheduler(private val context: Context) {
         )
     }
 
-    private fun firePendingIntent(ruleId: Int, trigger: Instant?, flags: Int): PendingIntent? {
-        val intent = Intent(context, AlarmReceiver::class.java)
+    private fun fireIntent(ruleId: Int, trigger: Instant?): Intent =
+        Intent(context, AlarmReceiver::class.java)
             .setAction(ACTION_FIRE)
             // The data URI makes each rule's intent distinct under Intent.filterEquals,
             // so cancelling one alarm cannot clobber another's PendingIntent.
@@ -129,13 +129,27 @@ class AlarmScheduler(private val context: Context) {
             .putExtra(EXTRA_RULE_ID, ruleId)
             .apply { trigger?.let { putExtra(EXTRA_TRIGGER_AT, it.toEpochMilli()) } }
 
-        return PendingIntent.getBroadcast(
+    /** Creates or replaces the rule's PendingIntent. Never null, because it may create. */
+    private fun createFirePendingIntent(ruleId: Int, trigger: Instant): PendingIntent =
+        PendingIntent.getBroadcast(
             context,
             ruleId,
-            intent,
-            flags or PendingIntent.FLAG_IMMUTABLE,
+            fireIntent(ruleId, trigger),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
-    }
+
+    /**
+     * Looks up the rule's existing PendingIntent, or null when there is nothing to
+     * cancel. Extras are ignored by Intent.filterEquals, so the trigger time the
+     * original was built with does not need to be reproduced here to find it.
+     */
+    private fun existingFirePendingIntent(ruleId: Int): PendingIntent? =
+        PendingIntent.getBroadcast(
+            context,
+            ruleId,
+            fireIntent(ruleId, null),
+            PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_NO_CREATE,
+        )
 
     /** Schedules a one-off snooze. Does not disturb the rule's own next occurrence. */
     fun snooze(rule: AlarmRule, minutes: Int) {
