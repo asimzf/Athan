@@ -86,6 +86,14 @@ so they are covered by plain JVM unit tests in `app/src/test`:
 difference, user tuning, day-to-day drift, negative and midnight-crossing offsets, the
 weekday filter semantics, skip-next, and the polar-day case.
 
+CI runs these on every push and then assembles the APK, so a green run means the whole
+project — Compose UI, services, receivers and manifest included — compiles.
+
+> **Not yet verified:** the app has never been run on a device or emulator. Compiling is
+> not the same as working. The ringing path in particular (lock-screen display, audio
+> through Do Not Disturb, wake locks, OEM battery managers) can only really be confirmed
+> on real hardware.
+
 Independently checked: for Riyadh on 2026-03-15 the engine gives Dhuhr 12:02, which
 matches solar noon derived by hand — 12:00 − (46.6753° − 45°) × 4 min − EoT(≈ −9 min) —
 and sunrise 06:03 / sunset 18:02 sit symmetrically around it four days before the
@@ -95,17 +103,36 @@ Worth doing once on your own device: compare a month of computed times against
 [AlAdhan](https://aladhan.com/prayer-times-api) with matching method and madhab. They
 should agree to the minute.
 
-## Building
+## Getting the APK
+
+**From a release** — easiest, no GitHub login needed:
+[Releases](https://github.com/asimzf/Athan/releases) → download the `.apk` → open it on
+your phone. Android will ask you to allow installing from this source.
+
+**From a build** — the newest APK for any commit:
+[Actions](https://github.com/asimzf/Athan/actions) → pick a green run → *Artifacts* →
+`salaah-alarm-apk`. Downloading a workflow artifact does require being signed in to
+GitHub, and it arrives as a zip.
+
+Both are **debug** builds, signed with the standard Android debug keystore so they
+install directly. They are not Play-Store-signed, so you will see the usual "unknown
+developer" warning.
+
+To cut a new release, push a tag:
+
+```
+git tag v0.1.1 && git push origin v0.1.1
+```
+
+CI builds the APK and attaches it to the release automatically.
+
+## Building locally
 
 Requires Android SDK 35 and JDK 17+.
 
 ```
 ./gradlew assembleDebug
 ```
-
-> **Note:** this project has never been compiled — it was written in an environment with
-> no Android SDK, so only the Android-independent core has been run. Expect to fix minor
-> compile errors on first build, particularly around Compose API drift.
 
 ### Bumping dependencies
 
