@@ -230,8 +230,18 @@ private fun SetupCard(setup: SetupStatus, onFix: (SetupFix) -> Unit) {
             if (!setup.fullScreenIntentAllowed) {
                 SetupRow(
                     title = "Allow full-screen notifications",
-                    detail = "Needed for the alarm screen to appear over the lock screen.",
+                    detail = "Lets the alarm screen take over a locked or sleeping screen. " +
+                        "Without it the alarm only reaches the pull-down shade.",
                     onFix = { onFix(SetupFix.FULL_SCREEN) },
+                )
+            }
+            if (!setup.canDrawOverlays) {
+                SetupRow(
+                    title = "Allow display over other apps",
+                    detail = "Android demotes a full-screen alarm to a plain notification " +
+                        "while you are using the phone. This is what lets the alarm screen " +
+                        "appear anyway, instead of hiding in the shade.",
+                    onFix = { onFix(SetupFix.OVERLAY) },
                 )
             }
             if (!setup.batteryUnrestricted) {

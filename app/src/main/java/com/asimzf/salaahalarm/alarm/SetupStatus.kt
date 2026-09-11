@@ -26,6 +26,7 @@ data class SetupStatus(
     val notificationsEnabled: Boolean,
     val exactAlarmsAllowed: Boolean,
     val fullScreenIntentAllowed: Boolean,
+    val canDrawOverlays: Boolean,
     val batteryUnrestricted: Boolean,
 ) {
     /** Without these an alarm cannot reliably be seen or stopped. */
@@ -33,7 +34,7 @@ data class SetupStatus(
 
     val allClear: Boolean
         get() = notificationsEnabled && exactAlarmsAllowed &&
-            fullScreenIntentAllowed && batteryUnrestricted
+            fullScreenIntentAllowed && canDrawOverlays && batteryUnrestricted
 
     companion object {
         fun read(context: Context): SetupStatus {
@@ -63,6 +64,10 @@ data class SetupStatus(
                 true
             }
 
+            // Grants unconditional activity starts, so the ringing screen can appear
+            // even when the phone is unlocked and being used.
+            val canDrawOverlays = Settings.canDrawOverlays(context)
+
             val batteryUnrestricted = context.getSystemService(PowerManager::class.java)
                 ?.isIgnoringBatteryOptimizations(context.packageName) ?: true
 
@@ -70,6 +75,7 @@ data class SetupStatus(
                 notificationsEnabled = notificationsEnabled,
                 exactAlarmsAllowed = exactAlarmsAllowed,
                 fullScreenIntentAllowed = fullScreenIntentAllowed,
+                canDrawOverlays = canDrawOverlays,
                 batteryUnrestricted = batteryUnrestricted,
             )
         }
@@ -93,6 +99,10 @@ data class SetupStatus(
             } else {
                 null
             }
+
+        fun overlaySettings(context: Context): Intent =
+            Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION)
+                .setData(Uri.parse("package:${context.packageName}"))
 
         @Suppress("BatteryLife")
         fun batterySettings(context: Context): Intent =

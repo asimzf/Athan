@@ -5,5 +5,6 @@ enum class SetupFix {
     NOTIFICATIONS,
     EXACT_ALARMS,
     FULL_SCREEN,
+    OVERLAY,
     BATTERY,
 }

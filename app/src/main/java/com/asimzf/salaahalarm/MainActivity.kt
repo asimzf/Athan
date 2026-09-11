@@ -32,6 +32,7 @@ class MainActivity : ComponentActivity() {
             SetupFix.NOTIFICATIONS -> SetupStatus.notificationSettings(this)
             SetupFix.EXACT_ALARMS -> SetupStatus.exactAlarmSettings(this)
             SetupFix.FULL_SCREEN -> SetupStatus.fullScreenIntentSettings(this)
+            SetupFix.OVERLAY -> SetupStatus.overlaySettings(this)
             SetupFix.BATTERY -> SetupStatus.batterySettings(this)
         } ?: return
         runCatching { startActivity(intent) }
