@@ -1,9 +1,5 @@
 package com.asimzf.salaahalarm.ui
 
-import android.content.Intent
-import android.net.Uri
-import android.os.Build
-import android.provider.Settings
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -41,6 +37,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import com.asimzf.salaahalarm.alarm.SetupStatus
 import com.asimzf.salaahalarm.data.PrayerAnchor
 import com.asimzf.salaahalarm.prayer.HighLatitude
 import com.asimzf.salaahalarm.prayer.Method
@@ -189,30 +186,15 @@ fun SettingsScreen(
 
             Section("Reliability") {
                 Text(
-                    text = "Android will happily kill a background app and swallow its alarms. " +
-                        "These two settings are what keep alarms firing on time.",
+                    text = "Android will happily kill a background app and swallow its " +
+                        "alarms. Anything the OS is currently blocking is listed at the top " +
+                        "of the alarms screen, with a button to fix each one.",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
                 Spacer(Modifier.height(12.dp))
-
-                if (!state.canScheduleExact && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    Button(onClick = {
-                        context.startActivity(
-                            Intent(Settings.ACTION_REQUEST_SCHEDULE_EXACT_ALARM)
-                                .setData(Uri.parse("package:${context.packageName}"))
-                        )
-                    }) { Text("Allow exact alarms") }
-                    Spacer(Modifier.height(8.dp))
-                } else {
-                    Text("Exact alarms: allowed", style = MaterialTheme.typography.bodyMedium)
-                    Spacer(Modifier.height(8.dp))
-                }
-
                 OutlinedButton(onClick = {
-                    runCatching {
-                        context.startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
-                    }
+                    runCatching { context.startActivity(SetupStatus.batterySettings(context)) }
                 }) { Text("Battery optimisation settings") }
             }
         }

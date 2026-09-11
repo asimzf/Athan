@@ -6,7 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.asimzf.salaahalarm.alarm.AlarmReceiver
 import com.asimzf.salaahalarm.alarm.AlarmScheduler
 import com.asimzf.salaahalarm.alarm.AlarmService
-import com.asimzf.salaahalarm.alarm.Notifications
+import com.asimzf.salaahalarm.alarm.SetupStatus
 import com.asimzf.salaahalarm.data.ALL_DAYS
 import com.asimzf.salaahalarm.data.AlarmRule
 import com.asimzf.salaahalarm.data.AppState
@@ -38,8 +38,6 @@ data class ListUiState(
     val nextTriggers: Map<Int, Instant?> = emptyMap(),
     val today: DayTimes? = null,
     val settings: PrayerSettings = PrayerSettings(),
-    val canScheduleExact: Boolean = true,
-    val canUseFullScreenIntent: Boolean = true,
 )
 
 class MainViewModel(app: Application) : AndroidViewModel(app) {
@@ -56,6 +54,14 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     /** Non-null while an alarm is sounding, so the app itself is always a way to stop it. */
     val ringingRuleId: StateFlow<Int?> = AlarmService.ringingRuleId
+
+    private val _setup = MutableStateFlow(SetupStatus.read(app))
+    val setup: StateFlow<SetupStatus> = _setup.asStateFlow()
+
+    /** Call on every resume: the user may have just come back from a settings screen. */
+    fun refreshSetup() {
+        _setup.value = SetupStatus.read(getApplication<Application>())
+    }
 
     fun stopRingingAlarm() {
         val app = getApplication<Application>()
@@ -75,8 +81,6 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
             nextTriggers = scheduler.preview(appState),
             today = engine.timesFor(LocalDate.now(ZoneId.systemDefault())),
             settings = appState.settings,
-            canScheduleExact = scheduler.canScheduleExact(),
-            canUseFullScreenIntent = Notifications.canUseFullScreenIntent(getApplication<Application>()),
         )
     }
 

@@ -35,6 +35,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.asimzf.salaahalarm.alarm.SetupStatus
 import com.asimzf.salaahalarm.data.AlarmRule
 import com.asimzf.salaahalarm.data.PrayerAnchor
 import java.time.Instant
@@ -43,8 +44,10 @@ import java.time.Instant
 @Composable
 fun AlarmListScreen(
     state: ListUiState,
+    setup: SetupStatus,
     ringingRuleId: Int?,
     onStopRinging: () -> Unit,
+    onFixSetup: (SetupFix) -> Unit,
     onAdd: () -> Unit,
     onEdit: (AlarmRule) -> Unit,
     onToggle: (Int, Boolean) -> Unit,
@@ -81,22 +84,8 @@ fun AlarmListScreen(
 
             item { TodayCard(state) }
 
-            if (!state.canScheduleExact) {
-                item {
-                    WarningCard(
-                        "Exact alarms are switched off for this app, so alarms may fire late. " +
-                            "Turn on \"Alarms & reminders\" in Settings to fix it."
-                    )
-                }
-            }
-
-            if (!state.canUseFullScreenIntent) {
-                item {
-                    WarningCard(
-                        "Full-screen notifications are blocked, so alarms will not show a " +
-                            "ringing screen over the lock screen. They will still sound."
-                    )
-                }
+            if (!setup.allClear) {
+                item { SetupCard(setup, onFixSetup) }
             }
 
             if (state.alarms.isEmpty()) {
@@ -190,20 +179,90 @@ private fun StopRingingCard(onStop: () -> Unit) {
     }
 }
 
+/**
+ * Everything the OS has to allow before an alarm can actually be seen and stopped.
+ * Notifications denied is the dangerous one: the alarm still sounds, but nothing is
+ * shown, so it is called out as blocking rather than advisory.
+ */
 @Composable
-private fun WarningCard(message: String) {
+private fun SetupCard(setup: SetupStatus, onFix: (SetupFix) -> Unit) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(
-            containerColor = MaterialTheme.colorScheme.errorContainer,
+            containerColor = if (setup.isBlocking) {
+                MaterialTheme.colorScheme.errorContainer
+            } else {
+                MaterialTheme.colorScheme.surfaceVariant
+            },
         ),
     ) {
-        Text(
-            text = message,
-            modifier = Modifier.padding(16.dp),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onErrorContainer,
-        )
+        Column(Modifier.padding(16.dp)) {
+            Text(
+                text = if (setup.isBlocking) "Alarms will not work yet" else "Worth fixing",
+                style = MaterialTheme.typography.titleMedium,
+            )
+            Spacer(Modifier.height(4.dp))
+            Text(
+                text = if (setup.isBlocking) {
+                    "Android is blocking something an alarm needs."
+                } else {
+                    "Alarms work, but these make them more reliable."
+                },
+                style = MaterialTheme.typography.bodySmall,
+            )
+            Spacer(Modifier.height(12.dp))
+
+            if (!setup.notificationsEnabled) {
+                SetupRow(
+                    title = "Allow notifications",
+                    detail = "Without this an alarm still rings but shows nothing at all — " +
+                        "no ringing screen and no buttons to stop it.",
+                    onFix = { onFix(SetupFix.NOTIFICATIONS) },
+                )
+            }
+            if (!setup.exactAlarmsAllowed) {
+                SetupRow(
+                    title = "Allow alarms & reminders",
+                    detail = "Without this alarms fire late, by minutes or more.",
+                    onFix = { onFix(SetupFix.EXACT_ALARMS) },
+                )
+            }
+            if (!setup.fullScreenIntentAllowed) {
+                SetupRow(
+                    title = "Allow full-screen notifications",
+                    detail = "Needed for the alarm screen to appear over the lock screen.",
+                    onFix = { onFix(SetupFix.FULL_SCREEN) },
+                )
+            }
+            if (!setup.batteryUnrestricted) {
+                SetupRow(
+                    title = "Remove battery restrictions",
+                    detail = "Battery optimisation can kill the app and drop its alarms.",
+                    onFix = { onFix(SetupFix.BATTERY) },
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun SetupRow(title: String, detail: String, onFix: () -> Unit) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge)
+            Text(
+                detail,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Spacer(Modifier.height(8.dp))
+        Button(onClick = onFix) { Text("Fix") }
     }
 }
 

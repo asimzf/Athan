@@ -8,18 +8,34 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.asimzf.salaahalarm.ui.AlarmEditScreen
 import com.asimzf.salaahalarm.ui.AlarmListScreen
 import com.asimzf.salaahalarm.ui.MainViewModel
 import com.asimzf.salaahalarm.ui.Screen
+import com.asimzf.salaahalarm.alarm.SetupStatus
+import com.asimzf.salaahalarm.ui.SetupFix
 import com.asimzf.salaahalarm.ui.SettingsScreen
 import com.asimzf.salaahalarm.ui.theme.SalaahAlarmTheme
 
 class MainActivity : ComponentActivity() {
+
+    private fun launchSetupFix(fix: SetupFix) {
+        val intent = when (fix) {
+            SetupFix.NOTIFICATIONS -> SetupStatus.notificationSettings(this)
+            SetupFix.EXACT_ALARMS -> SetupStatus.exactAlarmSettings(this)
+            SetupFix.FULL_SCREEN -> SetupStatus.fullScreenIntentSettings(this)
+            SetupFix.BATTERY -> SetupStatus.batterySettings(this)
+        } ?: return
+        runCatching { startActivity(intent) }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -31,11 +47,24 @@ class MainActivity : ComponentActivity() {
                 val screen by viewModel.screen.collectAsState()
                 val state by viewModel.state.collectAsState()
                 val ringingRuleId by viewModel.ringingRuleId.collectAsState()
+                val setup by viewModel.setup.collectAsState()
 
                 val permissions = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestMultiplePermissions()
                 ) { granted ->
                     if (granted.values.any { it }) viewModel.refreshLocation()
+                }
+
+                val lifecycleOwner = LocalLifecycleOwner.current
+                DisposableEffect(lifecycleOwner) {
+                    val observer = LifecycleEventObserver { _, event ->
+                        if (event == Lifecycle.Event.ON_RESUME) {
+                            viewModel.refreshSetup()
+                            viewModel.resync()
+                        }
+                    }
+                    lifecycleOwner.lifecycle.addObserver(observer)
+                    onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
                 }
 
                 LaunchedEffect(Unit) {
@@ -46,15 +75,15 @@ class MainActivity : ComponentActivity() {
                         }
                     }
                     permissions.launch(wanted.toTypedArray())
-                    // Times shift with the date; re-derive whenever the app is opened.
-                    viewModel.resync()
                 }
 
                 when (val current = screen) {
                     is Screen.List -> AlarmListScreen(
                         state = state,
+                        setup = setup,
                         ringingRuleId = ringingRuleId,
                         onStopRinging = viewModel::stopRingingAlarm,
+                        onFixSetup = { fix -> launchSetupFix(fix) },
                         onAdd = { viewModel.navigate(Screen.Edit(null)) },
                         onEdit = { viewModel.navigate(Screen.Edit(it.id)) },
                         onToggle = viewModel::setEnabled,
