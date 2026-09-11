@@ -9,6 +9,7 @@ import com.asimzf.salaahalarm.data.AppStore
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import java.time.Instant
 
 /**
  * Receives the AlarmManager callback and the notification's action buttons.
@@ -32,6 +33,7 @@ class AlarmReceiver : BroadcastReceiver() {
     private fun handleFire(context: Context, intent: Intent) {
         val ruleId = intent.getIntExtra(AlarmScheduler.EXTRA_RULE_ID, -1)
         if (ruleId < 0) return
+        val firedAt = intent.getLongExtra(AlarmScheduler.EXTRA_TRIGGER_AT, 0L)
 
         // Order matters. Firing from an exact alarm grants this receiver a short
         // background-activity-start allowance; launching the ringing screen from the
@@ -60,7 +62,16 @@ class AlarmReceiver : BroadcastReceiver() {
                 // Consume a one-shot "skip next" so the rule returns to normal tomorrow.
                 val rule = store.current().alarms.firstOrNull { it.id == ruleId }
                 if (rule?.skipNext == true) store.setSkipNext(ruleId, false)
-                AlarmScheduler(context.applicationContext).syncFromStore(store)
+
+                // Never re-arm the occurrence that just fired. Without this floor an
+                // early delivery re-schedules the same instant and the alarm loops.
+                val floor = if (firedAt > 0L) {
+                    Instant.ofEpochMilli(firedAt).plusSeconds(1)
+                } else {
+                    Instant.now().plusSeconds(60)
+                }
+                AlarmScheduler(context.applicationContext)
+                    .syncFromStore(store, mapOf(ruleId to floor))
             } catch (t: Throwable) {
                 Log.e(TAG, "Failed to re-arm after firing rule $ruleId", t)
             } finally {

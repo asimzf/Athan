@@ -40,8 +40,21 @@ class AlarmScheduler(private val context: Context) {
     fun canScheduleExact(): Boolean =
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) alarmManager.canScheduleExactAlarms() else true
 
-    /** Re-registers every enabled alarm. Safe to call repeatedly; it is idempotent. */
-    fun sync(state: AppState, now: Instant = Instant.now()): List<ScheduledAlarm> {
+    /**
+     * Re-registers every enabled alarm. Safe to call repeatedly; it is idempotent.
+     *
+     * [notBefore] raises the floor for individual rules. Re-arming after a fire must pass
+     * the trigger that just fired, because setAlarmClock can deliver a few milliseconds
+     * early: measured against a bare Instant.now() the occurrence that just fired still
+     * looks like it is in the future, so the rule re-arms itself and goes off again
+     * seconds later. A rule's occurrences are a day apart, so raising its floor can never
+     * skip a legitimate one.
+     */
+    fun sync(
+        state: AppState,
+        now: Instant = Instant.now(),
+        notBefore: Map<Int, Instant> = emptyMap(),
+    ): List<ScheduledAlarm> {
         val zone = ZoneId.systemDefault()
         val engine = PrayerEngine(state.settings)
         val scheduled = mutableListOf<ScheduledAlarm>()
@@ -50,7 +63,8 @@ class AlarmScheduler(private val context: Context) {
             cancel(rule.id)
             if (!rule.enabled) continue
 
-            val trigger = AlarmMath.nextTrigger(rule, zone, now, engine::instantOf)
+            val floor = notBefore[rule.id]?.let { maxOf(now, it) } ?: now
+            val trigger = AlarmMath.nextTrigger(rule, zone, floor, engine::instantOf)
             if (trigger == null) {
                 Log.w(TAG, "No upcoming trigger for rule ${rule.id} (${rule.displayLabel})")
                 continue
@@ -176,7 +190,10 @@ class AlarmScheduler(private val context: Context) {
 
     private fun snoozeRequestCode(ruleId: Int) = Int.MAX_VALUE / 2 + ruleId
 
-    suspend fun syncFromStore(store: AppStore): List<ScheduledAlarm> = sync(store.current())
+    suspend fun syncFromStore(
+        store: AppStore,
+        notBefore: Map<Int, Instant> = emptyMap(),
+    ): List<ScheduledAlarm> = sync(store.current(), Instant.now(), notBefore)
 }
 
 data class ScheduledAlarm(val rule: AlarmRule, val triggerAt: Instant)

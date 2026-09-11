@@ -131,6 +131,14 @@ class AlarmService : Service() {
     }
 
     private fun beginRinging(rule: AlarmRule) {
+        // Starting is idempotent on purpose. onStartCommand can run more than once —
+        // a second alarm, a redelivery, or the same alarm re-fired — and the old code
+        // simply reassigned `player`, leaving the previous MediaPlayer looping forever
+        // with nothing holding a reference to it. Dismiss then stopped the tracked
+        // player while the orphan kept sounding.
+        silence()
+        autoStopJob?.cancel()
+
         acquireWakeLock()
         startAudio(rule)
         if (rule.vibrate) startVibration()
@@ -215,6 +223,7 @@ class AlarmService : Service() {
     }
 
     private fun acquireWakeLock() {
+        wakeLock?.takeIf { it.isHeld }?.let { runCatching { it.release() } }
         wakeLock = getSystemService(PowerManager::class.java)
             ?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "SalaahAlarm:ringing")
             ?.apply { acquire((AUTO_STOP_MINUTES + 1) * 60 * 1000) }
@@ -275,14 +284,27 @@ class AlarmService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
 
-    /** Stops noise and motion but leaves the service up. */
+    /** Stops noise and motion but leaves the service up. Safe to call repeatedly. */
     private fun silence() {
         fadeJob?.cancel()
-        runCatching { player?.stop() }
-        runCatching { player?.release() }
-        player = null
+        fadeJob = null
+
+        player?.let { mp ->
+            player = null
+            runCatching { mp.setVolume(0f, 0f) }
+            runCatching { mp.stop() }
+            runCatching { mp.release() }
+        }
+
         runCatching { vibrator?.cancel() }
         vibrator = null
+        // Also cancel through the manager: on API 31+ this covers any vibration this
+        // app started that the Vibrator handle alone may not own.
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            runCatching { getSystemService(VibratorManager::class.java)?.cancel() }
+        }
+
+        _ringingRuleId.value = null
     }
 
     private fun stopEverything() {
@@ -298,9 +320,9 @@ class AlarmService : Service() {
 
     override fun onDestroy() {
         running = null
-        _ringingRuleId.value = null
         autoStopJob?.cancel()
         silence()
+        AlarmActivity.finishIfShowing()
         wakeLock?.takeIf { it.isHeld }?.let { runCatching { it.release() } }
         wakeLock = null
         scope.cancel()

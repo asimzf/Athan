@@ -194,6 +194,30 @@ class CoreTest {
     }
 
     @Test
+    fun `an early delivery must not re-arm the occurrence that just fired`() {
+        val engine = PrayerEngine(riyadh)
+        val fajr = engine.instantOf(PrayerAnchor.FAJR, LocalDate.of(2026, 3, 15))!!
+
+        // setAlarmClock can deliver a few milliseconds early. Measured against the clock
+        // at that moment the occurrence that just fired still looks like it is ahead,
+        // so a naive re-arm reschedules the same instant and the alarm loops.
+        val deliveredEarly = fajr.minusMillis(5)
+        assertEquals(
+            "this is the hazard the scheduler's floor exists to avoid",
+            fajr,
+            AlarmMath.nextTrigger(rule(), riyadhZone, deliveredEarly, engine::instantOf),
+        )
+
+        // With the floor AlarmReceiver applies, the same call moves on to the next day.
+        val floor = fajr.plusSeconds(1)
+        val next = AlarmMath.nextTrigger(rule(), riyadhZone, floor, engine::instantOf)!!
+        assertEquals(
+            LocalDate.of(2026, 3, 16),
+            ZonedDateTime.ofInstant(next, riyadhZone).toLocalDate(),
+        )
+    }
+
+    @Test
     fun `disabled or dayless rules never fire`() {
         val engine = PrayerEngine(riyadh)
         val now = at(riyadhZone, "2026-03-15", "00:30")
