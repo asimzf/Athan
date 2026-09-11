@@ -28,11 +28,20 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
-      - name: Unit tests
-        run: ./gradlew test --stacktrace
+      - name: Build and test
+        run: |
+          set -o pipefail
+          ./gradlew test assembleDebug --console=plain 2>&1 | tee /tmp/build.log
 
-      - name: Build debug APK
-        run: ./gradlew assembleDebug --stacktrace
+      # Gradle's own failure output buries Kotlin errors under a long stack trace, so
+      # repeat just the diagnostics at the end of the log where they are readable.
+      - name: Compiler diagnostics
+        if: failure()
+        run: |
+          echo "::group::Kotlin and resource errors"
+          grep -E "^(e|w): |error:|FAILURE:|\* What went wrong:|Execution failed" /tmp/build.log \
+            | head -120 || echo "no diagnostic lines matched"
+          echo "::endgroup::"
 
       # The debug APK is signed with the standard debug keystore, so it installs on a
       # phone directly. A release build would come out unsigned and refuse to install.
