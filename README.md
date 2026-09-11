@@ -114,9 +114,20 @@ your phone. Android will ask you to allow installing from this source.
 `salaah-alarm-apk`. Downloading a workflow artifact does require being signed in to
 GitHub, and it arrives as a zip.
 
-Both are **debug** builds, signed with the standard Android debug keystore so they
-install directly. They are not Play-Store-signed, so you will see the usual "unknown
-developer" warning.
+Both are **debug** builds, signed with the `app/debug.keystore` committed to this repo,
+so they install directly and — importantly — **update over each other**. They are not
+Play-Store-signed, so expect the usual "unknown developer" warning.
+
+The keystore is checked in deliberately. Android's debug keystore is generated per
+machine, and a fresh CI runner makes a new one on every build, so every APK came out
+signed with a different key and Android refused to install it over the previous one:
+each update meant uninstalling first, which wipes your alarms. Pinning one key fixes
+that. It is a debug key with the conventional `android` password and is worth nothing
+for distribution — but it does mean anyone with this repo can build an APK that installs
+over yours, so a real release would need its own keystore kept out of version control.
+
+`versionCode` comes from the CI run number, so a newer build always supersedes an older
+one.
 
 To cut a new release, push a tag:
 

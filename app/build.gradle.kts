@@ -5,6 +5,10 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
 }
 
+// CI passes -PappVersionCode=<run number> so each build supersedes the last; a rebuilt
+// APK with an unchanged versionCode is not treated as an update.
+val appVersionCode = (project.findProperty("appVersionCode") as String?)?.toIntOrNull() ?: 1
+
 android {
     namespace = "com.asimzf.salaahalarm"
     compileSdk = 35
@@ -13,11 +17,27 @@ android {
         applicationId = "com.asimzf.salaahalarm"
         minSdk = 26
         targetSdk = 35
-        versionCode = 1
-        versionName = "1.0"
+        versionCode = appVersionCode
+        versionName = "1.0.$appVersionCode"
+    }
+
+    signingConfigs {
+        // A checked-in debug keystore, because the auto-generated one differs per machine
+        // — and a fresh CI runner makes a new one every build. Android refuses to install
+        // over a package signed with a different key, so without this every APK needed an
+        // uninstall first, losing all the alarms with it.
+        getByName("debug") {
+            storeFile = file("debug.keystore")
+            storePassword = "android"
+            keyAlias = "androiddebugkey"
+            keyPassword = "android"
+        }
     }
 
     buildTypes {
+        debug {
+            signingConfig = signingConfigs.getByName("debug")
+        }
         release {
             isMinifyEnabled = true
             isShrinkResources = true
