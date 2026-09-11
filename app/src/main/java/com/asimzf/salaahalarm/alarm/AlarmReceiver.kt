@@ -11,9 +11,11 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 
 /**
- * Receives the AlarmManager callback. Two jobs, in this order:
- *   1. get the ringing service started, because the receiver's window is short
- *   2. re-arm the rule for its next day
+ * Receives the AlarmManager callback and the notification's action buttons.
+ *
+ * Everything that must happen while the exact-alarm background-activity-start grace
+ * window is still open happens synchronously here. Anything asynchronous (reading the
+ * rule, re-arming) happens afterwards under goAsync.
  */
 class AlarmReceiver : BroadcastReceiver() {
 
@@ -21,6 +23,8 @@ class AlarmReceiver : BroadcastReceiver() {
         when (intent.action) {
             AlarmScheduler.ACTION_FIRE -> handleFire(context, intent)
             AlarmScheduler.ACTION_REFRESH -> handleRefresh(context)
+            ACTION_DISMISS -> handleDismiss(context)
+            ACTION_SNOOZE -> handleSnooze(context, intent)
             else -> Log.w(TAG, "Ignoring unexpected action ${intent.action}")
         }
     }
@@ -29,8 +33,17 @@ class AlarmReceiver : BroadcastReceiver() {
         val ruleId = intent.getIntExtra(AlarmScheduler.EXTRA_RULE_ID, -1)
         if (ruleId < 0) return
 
-        // Start ringing synchronously. Being launched by an exact alarm is an explicit
-        // exemption from the Android 12+ background foreground-service start restriction.
+        // Order matters. Firing from an exact alarm grants this receiver a short
+        // background-activity-start allowance; launching the ringing screen from the
+        // service later — after a disk read — falls outside it and is silently blocked.
+        // So start the activity here, synchronously, while the grant still holds.
+        runCatching {
+            context.startActivity(
+                AlarmActivity.intent(context, ruleId)
+                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
+            )
+        }.onFailure { Log.w(TAG, "Ringing screen blocked; notification is the fallback", it) }
+
         val serviceIntent = Intent(context, AlarmService::class.java)
             .setAction(AlarmService.ACTION_START)
             .putExtra(AlarmScheduler.EXTRA_RULE_ID, ruleId)
@@ -56,6 +69,40 @@ class AlarmReceiver : BroadcastReceiver() {
         }
     }
 
+    /**
+     * Stopping a service has no background restriction, unlike starting one, so this is
+     * the one dismissal path the OS cannot refuse. AlarmService.onDestroy does the
+     * silencing, which means dismissal works even if the service is in a state where it
+     * would not process a fresh start command.
+     */
+    private fun handleDismiss(context: Context) {
+        AlarmService.silenceRunningInstance()
+        context.stopService(Intent(context, AlarmService::class.java))
+    }
+
+    private fun handleSnooze(context: Context, intent: Intent) {
+        val ruleId = intent.getIntExtra(AlarmScheduler.EXTRA_RULE_ID, -1)
+
+        // Silence first: nobody should wait on a disk read to stop a noise.
+        AlarmService.silenceRunningInstance()
+
+        val pending = goAsync()
+        CoroutineScope(Dispatchers.Default).launch {
+            try {
+                if (ruleId >= 0) {
+                    AppStore(context.applicationContext).current().alarms
+                        .firstOrNull { it.id == ruleId }
+                        ?.let { AlarmScheduler(context.applicationContext).snooze(it, it.snoozeMinutes) }
+                }
+            } catch (t: Throwable) {
+                Log.e(TAG, "Failed to snooze rule $ruleId", t)
+            } finally {
+                context.stopService(Intent(context, AlarmService::class.java))
+                pending.finish()
+            }
+        }
+    }
+
     private fun handleRefresh(context: Context) {
         val pending = goAsync()
         CoroutineScope(Dispatchers.Default).launch {
@@ -70,7 +117,20 @@ class AlarmReceiver : BroadcastReceiver() {
         }
     }
 
-    private companion object {
-        const val TAG = "AlarmReceiver"
+    companion object {
+        private const val TAG = "AlarmReceiver"
+
+        const val ACTION_DISMISS = "com.asimzf.salaahalarm.DISMISS"
+        const val ACTION_SNOOZE = "com.asimzf.salaahalarm.SNOOZE"
+
+        /**
+         * Notification and ringing-screen controls go through a broadcast rather than
+         * startService: broadcasts are never refused for background state.
+         */
+        fun controlIntent(context: Context, action: String, ruleId: Int): Intent =
+            Intent(context, AlarmReceiver::class.java)
+                .setAction(action)
+                .setData(android.net.Uri.parse("salaahalarm://control/$action/$ruleId"))
+                .putExtra(AlarmScheduler.EXTRA_RULE_ID, ruleId)
     }
 }

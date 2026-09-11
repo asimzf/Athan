@@ -30,6 +30,7 @@ class MainActivity : ComponentActivity() {
                 val viewModel: MainViewModel = viewModel()
                 val screen by viewModel.screen.collectAsState()
                 val state by viewModel.state.collectAsState()
+                val ringingRuleId by viewModel.ringingRuleId.collectAsState()
 
                 val permissions = rememberLauncherForActivityResult(
                     ActivityResultContracts.RequestMultiplePermissions()
@@ -52,6 +53,8 @@ class MainActivity : ComponentActivity() {
                 when (val current = screen) {
                     is Screen.List -> AlarmListScreen(
                         state = state,
+                        ringingRuleId = ringingRuleId,
+                        onStopRinging = viewModel::stopRingingAlarm,
                         onAdd = { viewModel.navigate(Screen.Edit(null)) },
                         onEdit = { viewModel.navigate(Screen.Edit(it.id)) },
                         onToggle = viewModel::setEnabled,

@@ -27,6 +27,9 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import java.time.ZoneId
 import java.time.ZonedDateTime
@@ -40,20 +43,32 @@ class AlarmService : Service() {
 
     companion object {
         private const val TAG = "AlarmService"
-        const val ACTION_START = "start"
-        const val ACTION_DISMISS = "dismiss"
-        const val ACTION_SNOOZE = "snooze"
+        const val ACTION_START = "com.asimzf.salaahalarm.START_RINGING"
+        const val ACTION_DISMISS = "com.asimzf.salaahalarm.STOP_RINGING"
 
         /** Give up after this long so an unanswered alarm cannot drain the battery. */
-        private const val AUTO_STOP_MINUTES = 10L
+        private const val AUTO_STOP_MINUTES = 5L
         private const val FADE_IN_SECONDS = 5
 
         private val VIBRATE_PATTERN = longArrayOf(0, 500, 500, 500, 1000)
 
-        fun intent(context: Context, action: String, ruleId: Int): Intent =
-            Intent(context, AlarmService::class.java)
-                .setAction(action)
-                .putExtra(AlarmScheduler.EXTRA_RULE_ID, ruleId)
+        /**
+         * The live instance, so a dismissal can silence the noise directly instead of
+         * relying on an Intent being delivered. Weak coupling on purpose: if the service
+         * is already gone there is nothing to stop and this is a no-op.
+         */
+        @Volatile
+        private var running: AlarmService? = null
+
+        private val _ringingRuleId = MutableStateFlow<Int?>(null)
+
+        /** Non-null while an alarm is actually sounding; drives the in-app stop banner. */
+        val ringingRuleId: StateFlow<Int?> = _ringingRuleId.asStateFlow()
+
+        /** Stops noise and vibration immediately, without waiting on service lifecycle. */
+        fun silenceRunningInstance() {
+            running?.silence()
+        }
     }
 
     private var player: MediaPlayer? = null
@@ -66,18 +81,17 @@ class AlarmService : Service() {
 
     override fun onBind(intent: Intent?): IBinder? = null
 
+    override fun onCreate() {
+        super.onCreate()
+        running = this
+    }
+
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val ruleId = intent?.getIntExtra(AlarmScheduler.EXTRA_RULE_ID, -1) ?: -1
 
-        when (intent?.action) {
-            ACTION_DISMISS -> {
-                stopEverything()
-                return START_NOT_STICKY
-            }
-            ACTION_SNOOZE -> {
-                snoozeAndStop(ruleId)
-                return START_NOT_STICKY
-            }
+        if (intent?.action == ACTION_DISMISS) {
+            stopEverything()
+            return START_NOT_STICKY
         }
 
         if (ruleId < 0) {
@@ -104,23 +118,6 @@ class AlarmService : Service() {
         return START_NOT_STICKY
     }
 
-    /** Snooze has to work even if the process was rebuilt and [activeRule] is gone. */
-    private fun snoozeAndStop(ruleId: Int) {
-        val known = activeRule
-        if (known != null) {
-            AlarmScheduler(this).snooze(known, known.snoozeMinutes)
-            stopEverything()
-            return
-        }
-        // Silence first, resolve the rule after; nobody should wait on disk to stop a noise.
-        silence()
-        scope.launch {
-            AppStore(applicationContext).current().alarms.firstOrNull { it.id == ruleId }
-                ?.let { AlarmScheduler(this@AlarmService).snooze(it, it.snoozeMinutes) }
-            stopEverything()
-        }
-    }
-
     private fun startForegroundCompat(notification: Notification) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             startForeground(
@@ -137,15 +134,11 @@ class AlarmService : Service() {
         acquireWakeLock()
         startAudio(rule)
         if (rule.vibrate) startVibration()
+        _ringingRuleId.value = rule.id
 
-        // The full-screen intent is not reliable once the device is unlocked and in use,
-        // so launch the ringing screen directly too.
-        runCatching {
-            startActivity(
-                AlarmActivity.intent(this, rule.id)
-                    .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK)
-            )
-        }.onFailure { Log.w(TAG, "Could not launch ringing screen; notification still shown", it) }
+        // No startActivity here: a foreground service has no background-activity-start
+        // privilege on Android 10+, so this silently did nothing. AlarmReceiver launches
+        // the screen instead, while the exact-alarm grant is still open.
 
         autoStopJob = scope.launch {
             delay(AUTO_STOP_MINUTES * 60 * 1000)
@@ -252,22 +245,33 @@ class AlarmService : Service() {
             .setContentIntent(fullScreen)
             .setFullScreenIntent(fullScreen, true)
 
+        // Dismiss is added even for the placeholder notification: stopping the noise
+        // needs no knowledge of which rule it was, and the rule may still be loading or
+        // may fail to load entirely. There must never be a ringing state without a stop.
+        builder.addAction(
+            R.drawable.ic_alarm_off,
+            "Dismiss",
+            controlPendingIntent(AlarmReceiver.ACTION_DISMISS, rule?.id ?: -1),
+        )
         if (rule != null) {
             builder.addAction(
-                0,
+                R.drawable.ic_snooze,
                 "Snooze ${rule.snoozeMinutes} min",
-                servicePendingIntent(ACTION_SNOOZE, rule.id),
+                controlPendingIntent(AlarmReceiver.ACTION_SNOOZE, rule.id),
             )
-            builder.addAction(0, "Dismiss", servicePendingIntent(ACTION_DISMISS, rule.id))
         }
         return builder.build()
     }
 
-    private fun servicePendingIntent(action: String, ruleId: Int): PendingIntent =
-        PendingIntent.getService(
+    /**
+     * Broadcast, not getService: tapping a notification action can land while the app is
+     * background-restricted, and startService is refused there while a broadcast is not.
+     */
+    private fun controlPendingIntent(action: String, ruleId: Int): PendingIntent =
+        PendingIntent.getBroadcast(
             this,
             action.hashCode() + ruleId,
-            intent(this, action, ruleId),
+            AlarmReceiver.controlIntent(this, action, ruleId),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
 
@@ -282,6 +286,7 @@ class AlarmService : Service() {
     }
 
     private fun stopEverything() {
+        _ringingRuleId.value = null
         autoStopJob?.cancel()
         silence()
         wakeLock?.takeIf { it.isHeld }?.let { runCatching { it.release() } }
@@ -292,6 +297,8 @@ class AlarmService : Service() {
     }
 
     override fun onDestroy() {
+        running = null
+        _ringingRuleId.value = null
         autoStopJob?.cancel()
         silence()
         wakeLock?.takeIf { it.isHeld }?.let { runCatching { it.release() } }

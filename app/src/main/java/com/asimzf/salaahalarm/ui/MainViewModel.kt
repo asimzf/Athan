@@ -3,7 +3,9 @@ package com.asimzf.salaahalarm.ui
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.asimzf.salaahalarm.alarm.AlarmReceiver
 import com.asimzf.salaahalarm.alarm.AlarmScheduler
+import com.asimzf.salaahalarm.alarm.AlarmService
 import com.asimzf.salaahalarm.alarm.Notifications
 import com.asimzf.salaahalarm.data.ALL_DAYS
 import com.asimzf.salaahalarm.data.AlarmRule
@@ -51,6 +53,16 @@ class MainViewModel(app: Application) : AndroidViewModel(app) {
 
     private val _locating = MutableStateFlow(false)
     val locating: StateFlow<Boolean> = _locating.asStateFlow()
+
+    /** Non-null while an alarm is sounding, so the app itself is always a way to stop it. */
+    val ringingRuleId: StateFlow<Int?> = AlarmService.ringingRuleId
+
+    fun stopRingingAlarm() {
+        val app = getApplication<Application>()
+        app.sendBroadcast(
+            AlarmReceiver.controlIntent(app, AlarmReceiver.ACTION_DISMISS, ringingRuleId.value ?: -1)
+        )
+    }
 
     val state: StateFlow<ListUiState> = store.state
         .map { appState -> toUiState(appState) }

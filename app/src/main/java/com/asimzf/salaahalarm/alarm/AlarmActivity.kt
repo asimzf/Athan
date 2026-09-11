@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import android.os.Bundle
+import android.view.KeyEvent
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.OnBackPressedCallback
@@ -81,8 +82,8 @@ class AlarmActivity : ComponentActivity() {
                 }
                 RingingScreen(
                     rule = rule,
-                    onSnooze = { send(AlarmService.ACTION_SNOOZE) },
-                    onDismiss = { send(AlarmService.ACTION_DISMISS) },
+                    onSnooze = { send(AlarmReceiver.ACTION_SNOOZE) },
+                    onDismiss = { send(AlarmReceiver.ACTION_DISMISS) },
                 )
             }
         }
@@ -94,8 +95,25 @@ class AlarmActivity : ComponentActivity() {
     }
 
     private fun send(action: String) {
-        startService(AlarmService.intent(this, action, ruleId))
+        // Broadcast rather than startService: the receiver stops the service outright,
+        // which the OS never refuses, whereas starting one can be background-blocked.
+        sendBroadcast(AlarmReceiver.controlIntent(this, action, ruleId))
         finish()
+    }
+
+    /**
+     * A physical volume key dismisses, the way every other alarm clock behaves. This is
+     * the last line of defence: it works even if the buttons fail to draw.
+     */
+    override fun onKeyDown(keyCode: Int, event: KeyEvent?): Boolean = when (keyCode) {
+        KeyEvent.KEYCODE_VOLUME_UP,
+        KeyEvent.KEYCODE_VOLUME_DOWN,
+        KeyEvent.KEYCODE_CAMERA,
+        KeyEvent.KEYCODE_HEADSETHOOK -> {
+            send(AlarmReceiver.ACTION_DISMISS)
+            true
+        }
+        else -> super.onKeyDown(keyCode, event)
     }
 
     private fun showOverLockScreen() {
@@ -148,7 +166,7 @@ private fun RingingScreen(
             )
             Spacer(Modifier.height(16.dp))
             Text(
-                text = rule?.displayLabel ?: "Salaah alarm",
+                text = rule?.displayLabel ?: "Alarm",
                 style = MaterialTheme.typography.headlineSmall,
                 textAlign = TextAlign.Center,
                 color = MaterialTheme.colorScheme.primary,

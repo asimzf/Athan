@@ -16,6 +16,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -42,6 +43,8 @@ import java.time.Instant
 @Composable
 fun AlarmListScreen(
     state: ListUiState,
+    ringingRuleId: Int?,
+    onStopRinging: () -> Unit,
     onAdd: () -> Unit,
     onEdit: (AlarmRule) -> Unit,
     onToggle: (Int, Boolean) -> Unit,
@@ -72,6 +75,10 @@ fun AlarmListScreen(
             contentPadding = PaddingValues(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
+            if (ringingRuleId != null) {
+                item { StopRingingCard(onStopRinging) }
+            }
+
             item { TodayCard(state) }
 
             if (!state.canScheduleExact) {
@@ -153,6 +160,32 @@ private fun TodayCard(state: ListUiState) {
                     }
                 }
             }
+        }
+    }
+}
+
+/** Opening the app is the guaranteed way to stop an alarm, whatever else the OS blocks. */
+@Composable
+private fun StopRingingCard(onStop: () -> Unit) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.errorContainer,
+        ),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = "An alarm is ringing",
+                style = MaterialTheme.typography.titleMedium,
+                color = MaterialTheme.colorScheme.onErrorContainer,
+            )
+            Button(onClick = onStop) { Text("Stop") }
         }
     }
 }
